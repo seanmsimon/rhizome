@@ -1,0 +1,2 @@
+# rhizome
+Rhizome JavaScript Library
