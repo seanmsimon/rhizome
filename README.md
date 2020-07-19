@@ -5,7 +5,3 @@
 *Licensed under the MIT license.*
 
 **_Version: 1.0.0-beta.1_**
-
-## <em>Coming soon...</em>
-
-## (You guys have mental problems.)
