@@ -1,0 +1,957 @@
+/*!
+ * Rhizome (rhizome.js) v1.0.0-beta.1
+ * Copyright 2017, Sean M. Simon - http://seansimon.name
+ * Licensed under the MIT license.
+ *
+ * Version: 1.0.0-beta.1
+ *
+ * π
+ *
+ */
+
+/*
+
+    TO DO
+    -----
+    - Direct access to node HTML element JavaScript object methods/functions vs having to access r$(this).el and then methods/functions
+    - Node name search/selector for _rhizome object hierarchy
+    - Ajax database loading of JSON and JavaScript - MySQL and eventually Mongo or other
+    - Performance tests of Rhizome vs JavaScript vs jQuery with graphs if possible
+    - Validate JavaScript objects and add error output
+    - Dots in a CSS class indicate a Rhizome accessor class 
+    - Light/dark themes for console text coloring
+    
+    DOCUMENTATION
+    -------------
+    - Browser inspector / Firebug causes MutationObserve objects to fire multiple times vs one time on an event
+    
+*/
+
+var _rhizome = {
+	['@']: {
+		nodeName: 'root',
+		counters: {
+			nodesTotal: 0,
+			nodesLoaded: 0,
+			treesTotal: 0,
+			treesLoaded: 0,
+            observersTotal: 0,
+            observersLoaded: 0
+		},
+        observers: {
+            elements: [],
+            temp: []
+        },
+		verbose: false
+	}
+};
+
+var r$ = (function() {
+    "use strict";
+
+    r$ = function() {
+		if (!arguments.length) {
+			return 'Rhizome v1.0.0';
+		}
+
+		switch (typeof arguments[0]) {
+            case 'object': return arguments[0]['@'];
+			case 'string': return r$.getNode(arguments[0]).toggle();
+		}
+    };
+	
+    r$.init = function() {
+		var parentElement = typeof arguments[0] !== 'undefined' ? arguments[0] : document.body,
+			callback = typeof arguments[1] !== 'undefined' ? arguments[1] : null;
+
+		r$(_rhizome).verbose = (typeof arguments[2] !== 'undefined') && arguments[2] ? true : false;
+
+		r$.status('Loading ' + r$() + '...', 'color: #FFCE3C;');
+        
+        var treeNodeList = r$.createNodeList(parentElement);
+        
+        r$(_rhizome).counters.treesTotal = treeNodeList.length;
+        
+		Array.prototype.filter.call(parentElement.getElementsByTagName('*'), function(childElement) {
+			if (childElement.hasAttribute('class') && (childElement.getAttribute('class').slice(0, 1) === '@')) {
+				
+				r$(_rhizome).counters.nodesTotal++;
+			}
+		});
+		
+		new rNode(_rhizome, treeNodeList, 0);
+		
+		/*
+		var derp = function() {
+			console.log("********   Don't fucking derp me!   ********");
+			
+			console.log(this);
+		}
+		*/
+
+		/*
+		if (callback === null) {
+			return null;
+		}
+
+		return callback.call();
+		*/
+	};
+
+	r$.status = function() {
+		var str = arguments[0],
+			css = typeof arguments[1] !== 'undefined' ? arguments[1] : false;
+
+		if (r$(_rhizome).verbose) {
+			if (css) {
+				console.log('%cr$: ' + str, css);
+			} else {
+				console.log('r$: ' + str);
+			}
+		}
+	};
+
+	r$.error = function(str) {
+		r$.status('Error: ' + str, 'color: #FFF; background-color: #C70000;');
+	};
+
+	r$.warning = function(str) {
+		r$.status('Warning: ' + str, 'color: #FFF; background-color: #FF9E00;');
+	};
+	
+	r$.getNodeName = function(nodeAccessor) {
+		var l = nodeAccessor.length,
+			i = -1,
+			n = r$.getLevel(nodeAccessor);
+
+		while (n-- && i++ < l) {
+			i = nodeAccessor.indexOf('.', i);
+
+			if (i < 0) {
+				break;
+			}
+		}
+
+		return nodeAccessor.slice(i + 1);
+	};
+
+	r$.getLevel = function(nodeAccessor) {
+		var l = nodeAccessor.length,
+			i = -1,
+			n = 0;
+
+		while (i++ < l) {
+			i = nodeAccessor.indexOf('.', i);
+
+			if (i < 0) {
+				break;
+			}
+
+			n++;
+		}
+
+		return n;
+	};
+
+    r$.toCamelCase = function(str) {
+        var words = str.split('-'),
+            camelCase = '';
+
+        for (let i = 0; i < words.length; i++) {
+            camelCase += i === 0 ? words[i].toLowerCase() : words[i].slice(0, 1).toUpperCase() + words[i].slice(1);
+        }
+
+        return camelCase;
+    };
+
+	r$.getElementAccessor = function(el) {
+		var c = el.hasAttribute('class') ? el.getAttribute('class') : false,
+			result = false;
+
+		if (c && (c.slice(0, 1) === '@')) {
+			result = c.indexOf(' ') !== -1 ? c.slice(1, c.indexOf(' ')) : c.slice(1);
+		}
+
+		return result;
+	};
+
+	r$.getNodeByElement = function(el) {
+		var nodeAccessor = r$.getElementAccessor(el);
+		var targetNode = typeof eval('_rhizome.' + nodeAccessor) !== 'undefined' ? eval('_rhizome.' + nodeAccessor) : false;
+		
+		if (targetNode) {
+			if (Array.isArray(targetNode)) {
+				for (let i = 0; i < targetNode.length; i++) {
+					if (r$(targetNode[i]).el === el) {
+						return targetNode[i];
+					}
+				}
+			} else {
+				return targetNode;
+			}
+		}
+		
+		return false;
+	};
+	
+	r$.get = function(accessor) {
+		try {
+			var result = typeof eval(accessor) !== 'undefined' ? eval(accessor) : false;
+			
+			if (!result) { 
+				if (accessor.slice(0, accessor.indexOf('.')) === '_rhizome') {
+					r$.error('Node not found. (@' + accessor.slice(accessor.indexOf('.') + 1) + ')');
+				} else {
+					r$.error('Object not found. (@' + accessor);
+				}
+			}
+			
+			return result;
+		}
+		catch (e) {
+			r$.error(e);
+		}
+	};
+	
+	r$.getNode = function(nodeAccessor) { 
+		return r$.get('_rhizome.' + nodeAccessor);
+	};
+	
+	r$.getObject = function(objectAccessor) {
+		return r$.get(objectAccessor);
+	};
+	
+	r$.getFallbackAccessor = function(originalAccessor, currentAccessorLevel, key) {
+		var nodeNames = originalAccessor.split('.'),
+			maximumAccessorLevel = r$.getLevel(originalAccessor),
+			validatedAccessor = '';
+        
+        if (nodeNames.length === 0) {
+            validatedAccessor = originalAccessor;
+        } else {
+            for (let i = 0; i <= currentAccessorLevel; i++) {
+                validatedAccessor += (i !== 0 ? '.' : '') + nodeNames[i];
+            }
+        }
+        
+        if ((typeof eval(validatedAccessor) === 'undefined')) {
+            validatedAccessor = r$.validateAccessorControlKey(validatedAccessor, currentAccessorLevel, key);
+        } else {
+            if (currentAccessorLevel <= maximumAccessorLevel) {
+                currentAccessorLevel++;
+
+                validatedAccessor = r$.getFallbackAccessor(originalAccessor, currentAccessorLevel, key);
+            }
+        }
+        
+		return validatedAccessor;
+	};
+	
+	r$.validateAccessorControlKey = function(validatedAccessor, currentAccessorLevel, key) {
+		validatedAccessor = r$.decreaseAccessorLevel(validatedAccessor, currentAccessorLevel);
+		
+		if (key !== null) {
+			if (validatedAccessor) {
+				try {
+					var validatedObject = typeof eval(validatedAccessor) !== 'undefined' ? eval(validatedAccessor) : false;
+					
+					if (validatedObject) {
+						if (!(validatedObject.hasOwnProperty(key) && Boolean(validatedObject[key]))) {
+							if (currentAccessorLevel !== 0) {
+								currentAccessorLevel--;
+		
+								validatedAccessor = r$.validateAccessorControlKey(validatedAccessor, currentAccessorLevel, key);
+							}
+						}
+					}
+				}
+				catch (e) {                    
+					r$.error(e);
+				}
+			}
+		}
+		
+		return validatedAccessor;
+	};
+
+	r$.decreaseAccessorLevel = function(originalAccessor, currentAccessorLevel) {
+		var nodeNames = originalAccessor.split('.'),
+			previousAccessor = '';
+		
+		if (originalAccessor.slice(0, originalAccessor.indexOf('.') === '_rhizome')) {
+			nodeNames.shift();
+		}
+		
+		if (currentAccessorLevel !== 0) {
+			for (let i = 0; i <= currentAccessorLevel - 1; i++) {
+				previousAccessor += nodeNames[i] + (i < currentAccessorLevel - 1 ? '.' : '');
+			}
+			
+			return previousAccessor;
+		} else {
+			return false;
+		}
+	};
+    
+	r$.createNodeList = function(parentElement) {
+        function pushItem(nodeListByName, el) {
+            var itemValue = { 
+                el: el, 
+                nodeAccessor: r$.getElementAccessor(el), 
+                nodeIndex: null
+            };
+            
+            var nodeName = r$.getNodeName(itemValue.nodeAccessor);
+
+            if (nodeListByName.hasOwnProperty(nodeName) && Boolean(nodeListByName[nodeName])) {
+                if (Array.isArray(nodeListByName[nodeName])) {
+                    nodeListByName[nodeName].push(itemValue);
+                } else { 
+                    nodeListByName[nodeName] = [nodeListByName[nodeName], itemValue];
+                }
+            } else {
+                nodeListByName[nodeName] = itemValue;
+            }
+            
+            return nodeListByName;
+        }
+        
+        var parentNodeAccessor = r$.getElementAccessor(parentElement),
+            childNodeAccessor = null,
+            nodeListByName = {},
+			nodeList = [];
+		
+        if (parentNodeAccessor) {
+            // Return all sibling elements at parentElement level + 1
+            
+            Array.prototype.filter.call(parentElement.getElementsByTagName('*'), function(childElement) {
+                if ((childNodeAccessor = r$.getElementAccessor(childElement))) {
+                    if (childNodeAccessor.slice(0, parentNodeAccessor.length) === parentNodeAccessor && r$.getLevel(childNodeAccessor) === r$.getLevel(parentNodeAccessor) + 1) {
+                        nodeListByName = pushItem(nodeListByName, childElement);
+                    }
+                }
+            });
+        } else {
+            // Return all tree elements within the HTML hierarchy of parentElement
+            
+            Array.prototype.filter.call(parentElement.getElementsByTagName('*'), function(childElement) {
+                if ((childNodeAccessor = r$.getElementAccessor(childElement))) {
+                    if (childNodeAccessor.indexOf('.') === -1) {
+                        nodeListByName = pushItem(nodeListByName, childElement);
+                    }
+                }
+            });
+        }
+		
+		Object.keys(nodeListByName).forEach(function(nodeName) {
+			if (nodeListByName[nodeName].length > 1) { 
+				for (let i = 0; i < nodeListByName[nodeName].length; i++) {
+					nodeListByName[nodeName][i].nodeIndex = i;
+				}
+			}
+		});
+		
+		for (const [key, value] of Object.entries(nodeListByName)) {
+			if (Array.isArray(value)) {
+				for (let i = 0; i < value.length; i++) {
+					nodeList.push(value[i]);
+				}
+			} else {
+				nodeList.push(value);
+			}
+		}
+		
+		return nodeList.length !== 0 ? nodeList : false;
+	};
+    
+    r$.observeNodes = function() {
+        var targetNode = null,
+            parentNode = null,
+            parentElement = null,
+            j = 0;
+        
+        r$.status('Loading mutation observers...', 'color: #52DDE4;');
+        
+        for (let i = 0;  i < r$(_rhizome).observers.elements.length; i++) {
+            r$(_rhizome).observers.temp[i] = {
+                targetNode: r$(_rhizome).observers.elements[i].targetNode,
+                el: r$(_rhizome).observers.elements[i].el.cloneNode(true),
+            };
+            
+            j++;
+        }
+        
+        for (let i = 0; i < r$(_rhizome).observers.temp.length; i++) {
+            targetNode = r$(_rhizome).observers.temp[i].targetNode;
+            
+            r$.status('@' + r$(targetNode).nodeAccessor + (r$(targetNode).nodeIndex !== null ? '[' + r$(targetNode).nodeIndex + ']' : '') + ' observing...');
+                        
+            r$$(targetNode).observer.observe(r$(_rhizome).observers.temp[i].el, { 
+                attributes: true, 
+                attributeOldValue: true, 
+                attributeFilter: [ 'class', 'data-on', 'data-off' ], 
+                subtree: true, 
+                childList: true, 
+                characterData: false, 
+                characterDataOldValue: false 
+            });
+            
+            if (r$(targetNode).el.hasAttribute('data-on-change')) {
+                r$(targetNode).imports.push({ ['on-change']: r$(targetNode).el.getAttribute('data-on-change') });
+            } else {
+                if (r$(targetNode).el.hasAttribute('data-before-default')) {
+                    r$(targetNode).imports.push({ ['before-default']: r$(targetNode).el.getAttribute('data-before-default') });
+                }
+
+                if (r$(targetNode).el.hasAttribute('data-after-default')) {
+                    r$(targetNode).imports.push({ ['after-default']: r$(targetNode).el.getAttribute('data-after-default') });
+                }
+            }
+
+            if (r$(targetNode).imports.length !== 0) {
+                targetNode.importScript();
+            }
+        }
+        
+        for (let i = 0; i < r$(_rhizome).observers.temp.length; i++) {
+            targetNode = r$(_rhizome).observers.elements[i].targetNode;
+            parentNode = r$(targetNode).parentNode;
+            parentElement = typeof r$(parentNode).el !== 'undefined' ? r$(parentNode).el : r$(targetNode).el.parentNode;
+                        
+            r$(_rhizome).observers.elements[i].el = parentElement.replaceChild(r$(_rhizome).observers.temp[i].el, r$(_rhizome).observers.elements[i].el);
+        }
+        
+        
+        console.log(r$(targetNode).nodeName + ' - ' + r$(targetNode).el.hasAttribute('data-on-change'));
+        
+        r$.status(r$() + ' loaded.', 'color: #FFCE3C;');
+    };
+
+    return r$;
+})();
+
+var r$$ = (function() {
+    r$$ = function() {
+		switch (typeof arguments[0]) {
+            case 'object': return r$(arguments[0])['#'];
+		}
+    };
+    
+    return r$$;
+})();
+
+var rNode = (function() {
+	"use strict";
+
+    rNode = function() {
+		if (!(r$(arguments[0]).nodeName === 'root' || rNode.prototype.isPrototypeOf(arguments[0]))) {
+			r$.error('First argument for rNode() must be the root object or an instance of rNode() (parent node).');
+
+			return false;
+		}
+		
+		if (arguments[1] !== null && !Array.isArray(arguments[1])) {
+			r$.error('Second argument for rNode() must be a node list. \n\n Ex: [ { el: HTMLElement[0], nodeAccessor: \'treeNodeName.nodeName1.nodeName2\', nodeIndex: 0 }, { el: HTMLElement[1], nodeAccessor: \'treeNodeName.nodeName1.nodeName3\', nodeIndex: 1 } ]');
+
+			return false;
+		}
+		
+		if (arguments[2] !== null && !Number.isInteger(arguments[2])) { 
+			r$.error('Third argument for rNode() must be an integer (node list index) or null.');
+			
+			return false;
+		}
+        
+        var MutationObserver = window.MutationObserver || window.WebKitMutationObserver || window.MozMutationObserver;
+        
+		this['@'] = {
+			['#']: {
+                preventDefault: false,
+                beforeDefault: null,
+                afterDefault: null,
+                onChange: null,
+                observer: new MutationObserver(
+                    function(mutationRecords) {
+                        var options = {
+                            mutationRecords: mutationRecords,
+                            targetNode: r$.getNodeByElement(mutationRecords[0].target),
+                            attrName: mutationRecords[0].attributeName,
+                            attrValue: mutationRecords[0].target.getAttribute(mutationRecords[0].attributeName)
+                        };
+
+                        this.onChange(options);
+                    }.bind(this)
+                )
+            },
+            status: 0,
+			el: arguments[1][arguments[2]].el,
+			nodeAccessor: arguments[1][arguments[2]].nodeAccessor,
+			nodeIndex: arguments[1][arguments[2]].nodeIndex,
+			nodeName: r$.getNodeName(arguments[1][arguments[2]].nodeAccessor),
+			control: {
+				on: null,
+				off: null
+			},
+			imports: [],
+			counters: {
+				nodesTotal: this.getNodesTotal(arguments[1][arguments[2]].el),
+				nodesLoaded: 0,
+				keysTotal: 0,
+				keysLoaded: 0
+			},
+			nodeList: arguments[1],
+			nodeListIndex: arguments[2],
+			parentNode: typeof arguments[0] !== 'undefined' ? arguments[0] : null
+		};
+
+		var parentNode = r$(this).parentNode,
+			status = '@' + r$(this).nodeAccessor + (r$(this).nodeIndex !== null ? '[' + r$(this).nodeIndex + ']' : '') + '...';
+        
+        if (r$(parentNode).nodeName === 'root') {
+            r$.status(status, 'color: #3FFF43;');
+        } else {
+            r$.status(status);
+        }
+
+		if (r$(this).el.classList.contains('observer')) {            
+            r$(_rhizome).observers.elements.push({
+                targetNode: this,
+                el: r$(this).el
+            });
+        }
+        
+        this.initNode();
+	};
+    
+    rNode.prototype.initNode = function() {
+        var parentNode = r$(this).parentNode,
+            nodeName = r$(this).nodeName;
+        
+        if (parentNode.hasOwnProperty(nodeName) && Boolean(parentNode[nodeName])) {
+            if (Array.isArray(parentNode[nodeName])) {
+                parentNode[nodeName].push(this);
+            } else { 
+                parentNode[nodeName] = [ parentNode[nodeName], this ];
+            }
+        } else {
+            parentNode[nodeName] = this;
+        }
+        
+        this.createControl();
+    };
+
+	rNode.prototype.createControl = function() {
+		var key = null,
+			value = null,
+			controlList = [],
+			fallbackNodeAccessor = null;
+        
+		for (let key of ['on', 'off']) {
+			if ((fallbackNodeAccessor = r$.getFallbackAccessor(r$(this).nodeAccessor, 0, key))) {
+				if ((value = Boolean(r$(this).el.hasAttribute('data-' + key)) ? r$(this).el.getAttribute('data-' + key) : false)) {
+					controlList.push([key, value]);
+				}
+			}
+		}
+                
+		if (controlList.length === 0) {
+			this.onNewControl();
+		} else {
+			r$(this).counters.keysTotal = controlList.length;
+			
+			for (let i = 0; i < controlList.length; i++) {
+				key = controlList[i][0];
+				value = controlList[i][1];
+	
+				if (value === '') {
+					r$(this).imports.push({ [key]: './control/' + key + '/' + r$(this).nodeAccessor + (r$(this).nodeIndex !== null ? '[' + r$(this).nodeIndex + ']' : '') + '.js' });
+				} else if (value.slice(0, 2) === './') { 
+					r$(this).imports.push({ [key]: value });
+				} else { 
+					r$.status('@' + r$(this).nodeAccessor + (r$(this).nodeIndex !== null ? '[' + r$(this).nodeIndex + ']' : '') + '.' + key + '...');
+					
+					new rBinding(this, key, value);
+				}
+			}
+            
+			if (r$(this).imports.length !== 0) {
+				this.importScript();
+			}
+		}
+	};
+    
+	rNode.prototype.importScript = function() {
+        var xhr = new XMLHttpRequest(),
+            date = new Date();
+        
+        var timestamp = date.getTime();
+
+		xhr.open('GET', RHIZOME_ROOT_DIR + Object.values(r$(this).imports[0])[0] + '?time=' + timestamp, true);
+		
+		xhr.addEventListener('readystatechange', function() {
+			var key = Object.keys(r$(this).imports[0])[0],
+				scriptPath = Object.values(r$(this).imports[0])[0];
+            
+            var isControl = (key.length === 2 && key.slice(0, 2) === 'on') || (key.length === 3 && key.slice(0, 3) === 'off') ? true : false;
+            
+			try {
+				switch (xhr.readyState) { 
+					case 3:
+                        var status = '@' + r$(this).nodeAccessor + (r$(this).nodeIndex !== null ? '[' + r$(this).nodeIndex + ']' : '');
+                        
+                        if (isControl) {
+                            r$.status(status + '.' + key + ' (' + scriptPath + ')...');
+                        } else {
+                            r$.status(status + '::' + r$.toCamelCase(key) + ' (' + scriptPath + ')...');
+                        }
+                    break;
+					case 4:
+						if (xhr.responseText.trim().slice(0, 6) === 'return') {
+							new rBinding(this, key, xhr.responseText);
+						} else {
+							r$.error('JavaScript document not found: ' + '@' + r$(this).nodeAccessor + (r$(this).nodeIndex !== null ? '[' + r$(this).nodeIndex + ']' : '') + '.' + key + ' (' + scriptPath + ')');
+						}
+
+						r$(this).imports.shift();
+                        
+                        // Add functionality to climb hierarchy and look for the closest node observer
+                        
+						if (r$(this).imports.length !== 0) {
+							this.importScript();
+						} else if (!isControl) { 
+                            this.initNode();
+                        }
+                        
+                        /*
+                        else if (Boolean(r$$(this).afterDefault)) {
+                            r$$(this).afterDefault.call(options);
+                        }
+                        */
+					break;
+					default: break;
+				}
+			} catch (e) {
+				r$.error(e + ' (@' + r$(this).nodeAccessor + (r$(this).nodeIndex !== null ? '[' + r$(this).nodeIndex + ']' : '') + ')');
+			}
+		}.bind(this, xhr));
+
+		// xhr.addEventListener('error', function(e) { });
+
+		// xhr.addEventListener('abort', function(e) { });
+
+		xhr.send();
+	};
+    
+	rNode.prototype.getNodesTotal = function(parentElement) {
+		var parentNodeAccessor = r$.getElementAccessor(parentElement),
+            childNodeAccessor = null,
+			nodesTotal = 0;
+		
+		Array.prototype.filter.call(parentElement.getElementsByTagName('*'), function(childElement) {
+			if (childElement.hasAttribute('class') && (childElement.getAttribute('class').slice(0, 1) === '@')) { 
+				if ((childNodeAccessor = r$.getElementAccessor(childElement))) { 
+					if (childNodeAccessor.slice(0, parentNodeAccessor.length) === parentNodeAccessor) { 
+						nodesTotal++;
+					}
+				}
+			}
+		});
+		
+		return nodesTotal;
+	};
+	
+	// Make sure to note in documentation that browser coder inspector will cause multiple mutations to occur
+    
+	rNode.prototype.onChange = function(options) {
+        /*
+        if (!r$$(this).preventDefault) {
+            var fn = function(options) {
+                switch (options.attrName) {
+                    case 'class':
+                        console.log('class');
+                    break;
+                    case 'data-on':
+                    case 'data-off':
+                        var key = options.attrName.slice(5, options.attrName.length);
+
+                        if (r$(options.targetNode).control[key] === null) {
+                            r$(options.targetNode).counters.keysTotal++;
+                        } else {
+                            r$(options.targetNode).counters.keysLoaded--;
+
+                            options.targetNode.updateNodesLoaded(r$(options.targetNode).parentNode, '-');
+                        }
+
+                        r$(options.targetNode).imports.push({ [key]: options.attrValue });
+
+                        options.targetNode.importScript(options);
+                    break;
+                    default: break;
+                }
+            };
+        
+            if (Boolean(r$$(this).beforeDefault)) {
+                options = { options, ...fn };
+                
+                r$$(this).beforeDefault.call(options);
+                
+                /*
+                    r$$(this).beforeDefault = function() {
+                        // Do something
+
+                        this.fn.call();
+                    }
+                */
+            // }
+
+           // if (Boolean(r$$(this).afterDefault)) {
+                /*
+                    r$$(this).afterDefault = function() {
+                        // Do something
+                    }
+                */
+                
+               // fn(r$$(this).afterDefault, options);
+            //}
+        //} else {
+           // if (Boolean(r$$(this).onChange)) {
+                r$$(this).onChange.script.call();
+           // }
+       // }
+	};
+	
+	rNode.prototype.pushNode = function() {
+		var parentNode = r$(this).parentNode,
+            siblingNodeList = null,
+            siblingNodeListIndex = null,
+            childNodeList = null,
+            childNodeListIndex = null;
+        
+        if (r$(parentNode).nodeName === 'root') {
+            if (r$(this).status === 1) {
+                siblingNodeList = r$(this).nodeList;
+                siblingNodeListIndex = r$(this).nodeListIndex + 1;
+                
+                if (siblingNodeListIndex < siblingNodeList.length) {
+                    new rNode(parentNode, siblingNodeList, siblingNodeListIndex);
+                }
+            } else {
+                childNodeList = r$.createNodeList(r$(this).el);
+
+                if (childNodeList !== false) {
+                    new rNode(this, childNodeList, 0);
+                }
+            }
+		} else {            
+            siblingNodeList = r$(this).nodeList;
+            siblingNodeListIndex = r$(this).nodeListIndex;
+
+            if (siblingNodeListIndex !== siblingNodeList.length - 1) {
+                // Sibling nodes have not finished going through the initialization sequence
+                
+                siblingNodeListIndex++;
+                
+                new rNode(parentNode, siblingNodeList, siblingNodeListIndex);
+            } else {
+                // No more sibling nodes, go to next level of child nodes
+                                
+                if ((childNodeList = r$.createNodeList(r$(this).el))) {
+                    new rNode(this, childNodeList, 0);
+                }
+            }
+        }
+	};
+	
+	rNode.prototype.updateNodesLoaded = function(parentNode, operator) {
+		r$(parentNode).counters.nodesLoaded = operator === '+' ? r$(parentNode).counters.nodesLoaded + 1 : r$(parentNode).counters.nodesLoaded - 1;
+		
+		if (r$(parentNode).nodeName !== 'root') {
+			this.updateNodesLoaded(r$(parentNode).parentNode, operator);
+		}
+	};
+
+	rNode.prototype.onNewControl = function() {
+        // r$.status('@' + r$(this).nodeAccessor + (r$(this).nodeIndex !== null ? '[' + r$(this).nodeIndex + ']' : '') + ' loaded.');
+
+		if (r$(this).counters.keysLoaded === r$(this).counters.keysTotal) {
+			this.updateNodesLoaded(r$(this).parentNode, '+');
+			
+            if (r$(this).counters.nodesLoaded !== r$(this).counters.nodesTotal) {
+                this.pushNode();
+            } else {
+                this.onNewNode();
+            }
+        }
+	};
+    
+	rNode.prototype.onNewEvent = function() {
+
+	};
+	
+	rNode.prototype.onNewNode = function() {
+		var parentNode = r$(this).parentNode;
+        
+        r$(this).status = 1;
+        
+		if (r$(parentNode).nodeName !== 'root') {
+			r$.status('@' + r$(this).nodeAccessor + (r$(this).nodeIndex !== null ? '[' + r$(this).nodeIndex + ']' : '') + ' loaded.');
+			
+            if (r$(this).nodeListIndex !== r$(this).nodeList.length - 1) {
+                this.pushNode();
+            } else {
+                r$(this).parentNode.onNewNode();
+            }
+		} else {            
+            this.onNewTree();
+		}
+	};
+
+	rNode.prototype.onNewTree = function() {
+		r$(_rhizome).counters.treesLoaded++;
+
+		r$.status('@' + r$(this).nodeAccessor + (r$(this).nodeIndex !== null ? '[' + r$(this).nodeIndex + ']' : '') + ' loaded.', 'color: #3FFF43;');
+        
+        if (r$(this).nodeListIndex !== r$(this).nodeList.length - 1) {
+            this.pushNode();
+        } else {
+            r$.observeNodes();
+        }
+	};
+	
+    rNode.prototype.toggle = function() {
+		function hasAnimation(el) {
+			var cssRules = document.styleSheets[0].rules || document.styleSheets[0].cssRules,
+				cssRuleFound = false,
+				type = null;
+	
+			for (let i = 0; i < cssRules.length; ++i) {
+				if (el === document.querySelector(cssRules[i].selectorText)) {
+					cssRuleFound = true;
+					
+					if ((cssRules[i].cssText.indexOf('transition:') !== -1) || (cssRules[i].cssText.indexOf('transition-property:') !== -1)) {
+						type = 'transition';
+					} else if ((cssRules[i].cssText.indexOf('animation:') !== -1) || (cssRules[i].cssText.indexOf('animation-name:') !== -1)) {
+						type = 'animation';
+					}
+					
+					break;
+				}
+			}
+
+			return cssRuleFound ? type : false;
+		}
+
+		if (Array.isArray(this)) {
+			r$.error('Node must be accessed by index.');
+
+			return false;
+		}
+
+		r$(this).active = r$(this).active ? false : true;
+
+        var key = r$(this).active ? 'on' : 'off';
+
+		// var animated = hasAnimation(targetNode['@'].el);
+		
+		/*
+		if (targetNode['@'].control[key] !== null) {
+			if (targetNode['@'].control[key].wait && animated) {
+				if (animated === 'transition') {
+					targetNode['@'].el.addEventListener('transitionend', function() {
+						targetNode['@'].control[key].ref.call();
+					}, false);
+				} else {
+					targetNode['@'].el.addEventListener('animationend', function() {
+						targetNode['@'].control[key].ref.call();
+					}, false);
+				}
+			} else {
+				*/
+        
+        console.log(this);
+        
+				r$(this).control[key].ref.call();
+				/*
+			}
+		}
+		*/
+    };
+
+    return rNode;
+})();
+
+var rBinding = (function() {
+	"use strict";
+
+    rBinding = function() {        
+		if (!rNode.prototype.isPrototypeOf(arguments[0])) {
+			r$.error('First argument for rBinding() must be an instance of rNode().');
+
+			return false;
+		}
+
+		if (arguments[1] !== 'on' && arguments[1] !== 'off' && arguments[1] !== 'on-change' && arguments[1] !== 'before-default' && arguments[1] !== 'after-default') {
+			r$.error('Second argument for rBinding() must be a valid control key, either \'on\' or \'off\'.');
+
+			return false;
+		}
+
+		if (typeof arguments[2] !== 'string') {
+			r$.error('Third argument for rBinding() must be a string containing valid JavaScript.');
+
+			return false;
+		}
+        
+		var scriptText = arguments[2],
+			nodeAccessor = r$(arguments[0]).nodeAccessor,
+			nodeAccessorFallback = null,
+			nodeIndex = null,
+            targetObject = null,
+            isControl = (arguments[1].length === 2 && arguments[1].slice(0, 2) === 'on') || (arguments[1].length === 3 && arguments[1].slice(0, 3) === 'off') ? true : false;
+        
+        nodeAccessorFallback = isControl ? r$.getFallbackAccessor(nodeAccessor, 0, arguments[1]) : r$.getFallbackAccessor(nodeAccessor, 0);
+        
+		if (Boolean(nodeAccessorFallback)) {
+			if (nodeAccessor === nodeAccessorFallback) {
+				nodeIndex = r$(arguments[0]).nodeIndex;
+			}
+            
+			try {
+				if (scriptText.slice(0, 6) !== 'return') {
+					scriptText = 'return ' + scriptText;
+				}
+                
+                if (isControl) {
+                    // Control
+                    
+                    r$(arguments[0]).control[arguments[1]] = {
+                        script: new Function(scriptText).call(),
+                        ref: new Function('return ' + nodeAccessorFallback + (nodeIndex !== null ? '[' + nodeIndex + ']' : '') + '.' + arguments[1] + '.call({ nodeAccessor: "' + r$(arguments[0]).nodeAccessor + '", ...' + '_rhizome.' + r$(arguments[0]).nodeAccessor + (r$(arguments[0]).nodeIndex !== null ? '[' + r$(arguments[0]).nodeIndex + ']' : '') + '[\'@\'].control.' + arguments[1] + '.script });'),
+                        wait: true
+                    };
+                } else {
+                    // Event
+                    
+                    r$$(arguments[0])[r$.toCamelCase(arguments[1])] = {
+                        script: new Function(scriptText).call(),
+                        ref: new Function('return ' + nodeAccessorFallback + (nodeIndex !== null ? '[' + nodeIndex + ']' : '') + '.' + arguments[1] + '.call({ nodeAccessor: "' + r$(arguments[0]).nodeAccessor + '", ...' + '_rhizome.' + r$(arguments[0]).nodeAccessor + (r$(arguments[0]).nodeIndex !== null ? '[' + r$(arguments[0]).nodeIndex + ']' : '') + '[\'@\'][\'#\'].' + r$.toCamelCase(arguments[1]) + '.script });'),
+                        wait: true
+                    };
+                }
+			}
+			catch (e) {
+				r$.error(e + ' (@' + r$(arguments[0]).nodeAccessor + (nodeIndex !== null ? '[' + nodeIndex + ']' : '') + ' | ' + e.fileName + ':' + e.lineNumber + ')');
+			}
+
+            if (isControl) { 
+                r$(arguments[0]).counters.keysLoaded++;
+                
+                arguments[0].onNewControl();
+            } else {
+                arguments[0].onNewEvent();
+            }
+		}
+	};
+
+    return rBinding;
+})();
